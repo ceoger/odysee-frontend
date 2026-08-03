@@ -108,8 +108,9 @@ function MarkdownLink(props: Props) {
         : undefined;
       const isMarkdownLinkWithLabel =
         children && Array.isArray(children) && React.Children.count(children) === 1 && children.toString() !== href;
+      const shouldAutoEmbedKnownAppLink = !isMarkdownLinkWithLabel && (!isComment || Boolean(parentCommentId));
 
-      if (possibleLbryUrl && !embedOptOut && (embedOptIn || (!isMarkdownLinkWithLabel && !isComment))) {
+      if (possibleLbryUrl && !embedOptOut && (embedOptIn || shouldAutoEmbedKnownAppLink)) {
         lbryUrlFromLink = possibleLbryUrl;
       }
     }
