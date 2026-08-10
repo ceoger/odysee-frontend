@@ -1,4 +1,12 @@
-import { COL_TYPES, SECTION_TAGS, WATCH_LATER_ID, FAVORITES_ID, QUEUE_ID } from 'constants/collections';
+import {
+  COL_TYPES,
+  SECTION_TAGS,
+  WATCH_LATER_ID,
+  WATCH_LATER_NAME,
+  FAVORITES_ID,
+  FAVORITES_NAME,
+  QUEUE_ID,
+} from 'constants/collections';
 import { getCurrentTimeInSec } from 'util/time';
 import { getClaimScheduledState, isClaimPrivate, isClaimUnlisted } from 'util/claim';
 export const defaultCollectionState: Collection = {
@@ -11,6 +19,24 @@ export const defaultCollectionState: Collection = {
   updatedAt: getCurrentTimeInSec(),
   type: 'collection',
 };
+export function getDefaultBuiltinCollections(): CollectionGroup {
+  return {
+    [WATCH_LATER_ID]: {
+      ...defaultCollectionState,
+      items: [],
+      id: WATCH_LATER_ID,
+      name: WATCH_LATER_NAME,
+      type: COL_TYPES.PLAYLIST,
+    },
+    [FAVORITES_ID]: {
+      ...defaultCollectionState,
+      items: [],
+      id: FAVORITES_ID,
+      name: FAVORITES_NAME,
+      type: COL_TYPES.PLAYLIST,
+    },
+  };
+}
 export function getClaimIdsInCollectionClaim(claim: CollectionClaim | null | undefined) {
   if (!claim) return claim;
   return (

@@ -14,6 +14,7 @@ import { selectClientSetting } from 'redux/selectors/settings';
 import { getSavedPassword, getAuthToken } from 'util/saved-passwords';
 import { doHandleSyncComplete } from 'redux/actions/app';
 import { selectUserVerifiedEmail } from 'redux/selectors/user';
+import { getDefaultBuiltinCollections } from 'util/collections';
 import { X_LBRY_AUTH_TOKEN } from 'constants/token';
 let syncTimer = null;
 const SYNC_INTERVAL = 1000 * 60 * 5; // 5 minutes
@@ -571,15 +572,41 @@ type SharedData = {
     settings?: any;
     app_welcome_version?: number;
     sharing_3P?: boolean;
-    unpublishedCollections: CollectionGroup;
-    editedCollections: CollectionGroup;
-    updatedCollections: UpdatedCollectionGroup;
-    builtinCollections: CollectionGroup;
-    savedCollectionIds: Array<string>;
+    unpublishedCollections?: CollectionGroup;
+    editedCollections?: CollectionGroup;
+    updatedCollections?: UpdatedCollectionGroup;
+    builtinCollections?: CollectionGroup;
+    savedCollectionIds?: Array<string>;
     autoPublishById?: Record<string, boolean>;
     lastViewedAnnouncement?: LastViewedAnnouncement;
   };
 };
+
+// Older iOS clients could save shared preferences before the collection keys existed.
+// Repair those payloads when they are read so the corrected shape is synced back to the wallet.
+function addMissingCollectionDefaults(preference: any): any {
+  if (!preference || preference.version !== '0.1' || !preference.value || typeof preference.value !== 'object') {
+    return preference;
+  }
+
+  const defaults = {
+    builtinCollections: getDefaultBuiltinCollections(),
+    editedCollections: {},
+    savedCollectionIds: [],
+    unpublishedCollections: {},
+  };
+  const value = { ...preference.value };
+  let repaired = false;
+
+  Object.entries(defaults).forEach(([key, fallback]) => {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      value[key] = fallback;
+      repaired = true;
+    }
+  });
+
+  return repaired ? { ...preference, value } : preference;
+}
 
 function extractUserState(rawObj: SharedData) {
   if (rawObj && rawObj.version === '0.1' && rawObj.value) {
@@ -783,8 +810,8 @@ export function doPreferenceSet(
   key: string,
   value: any,
   version: string,
-  success: (...args: Array<any>) => any,
-  fail: (...args: Array<any>) => any
+  success?: (...args: Array<any>) => any,
+  fail?: (...args: Array<any>) => any
 ) {
   return async (dispatch: Dispatch, getState: GetState) => {
     const previousSyncHash = selectLastSyncHash(getState());
@@ -842,9 +869,14 @@ export function doPreferenceGet(
       key,
     };
     return Lbry.preference_get(options)
-      .then((result) => {
+      .then(async (result) => {
         if (result) {
-          const preference = result[key];
+          const preference = key === 'shared' ? addMissingCollectionDefaults(result[key]) : result[key];
+
+          if (preference !== result[key]) {
+            await dispatch(doPreferenceSet(key, preference.value, preference.version));
+          }
+
           return success(preference);
         }
 

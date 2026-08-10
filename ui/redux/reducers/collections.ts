@@ -1,24 +1,11 @@
 import { handleActions } from 'util/redux-utils';
 import { getCurrentTimeInSec } from 'util/time';
-import { defaultCollectionState } from 'util/collections';
+import { defaultCollectionState, getDefaultBuiltinCollections } from 'util/collections';
 import * as ACTIONS from 'constants/action_types';
 import * as COLS from 'constants/collections';
 const defaultState: CollectionState = {
   // -- sync --
-  builtin: {
-    watchlater: {
-      ...defaultCollectionState,
-      id: COLS.WATCH_LATER_ID,
-      name: COLS.WATCH_LATER_NAME,
-      type: COLS.COL_TYPES.PLAYLIST,
-    },
-    favorites: {
-      ...defaultCollectionState,
-      id: COLS.FAVORITES_ID,
-      name: COLS.FAVORITES_NAME,
-      type: COLS.COL_TYPES.PLAYLIST,
-    },
-  },
+  builtin: getDefaultBuiltinCollections(),
   unpublished: {},
   edited: {},
   updated: {},
