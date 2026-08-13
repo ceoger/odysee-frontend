@@ -67,7 +67,6 @@ WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml ./
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --prod --frozen-lockfile && \
-    pnpm store prune && \
     rm -rf /tmp/* /root/.cache
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
