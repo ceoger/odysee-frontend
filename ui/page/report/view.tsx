@@ -206,11 +206,11 @@ export default function ReportPage() {
     !isUploading &&
     !descriptionTooShort &&
     !emailChangeIncomplete &&
-    !linkError &&
+    (!linkIsShown || !linkError) &&
     !mediaLinkError &&
-    !timestampError &&
-    !emailError &&
-    (!linkIsRequired || link !== '');
+    (!isProblem || !area?.allowTimestamp || !timestampError) &&
+    (isEmailChange || !emailError) &&
+    (!linkIsRequired || link.trim() !== '');
 
   const submitReport = useCallback(() => {
     if (!canSubmit || !area) return;
@@ -227,7 +227,8 @@ export default function ReportPage() {
       link: linkIsShown ? normalizeLink(link) : '',
       timestamp: isProblem && area.allowTimestamp ? timestamp.trim() : '',
       description: description.trim(),
-      screenshotUrl: [screenshotUrl, normalizeLink(mediaLink)].filter(Boolean).join(' '),
+      screenshotUrl,
+      recordingUrl: normalizeLink(mediaLink),
       // The reply address for an email change is the address being changed
       // from -- that is the one support has to verify against.
       email: isEmailChange ? currentEmail.trim() : email.trim(),
@@ -244,7 +245,6 @@ export default function ReportPage() {
     analytics.log(buildReportTitle(payload), {
       level: 'info',
       tags: buildReportTags(payload),
-      extra: { ...payload, message },
     });
 
     Lbryio.call('event', 'desktop_error', { error_message: message })
@@ -321,29 +321,34 @@ export default function ReportPage() {
             <div className="report-issue">
               {/* ---------- What kind of report ---------- */}
               <div className="report-issue__section">
-                <div className="report-issue__options report-issue__options--inline">
-                  <FormField
-                    type="radio"
-                    name="report_kind_problem"
-                    label={__('Report a problem')}
-                    checked={isProblem}
-                    onChange={() => setKind(ISSUE.KIND_PROBLEM)}
-                  />
-                  <FormField
-                    type="radio"
-                    name="report_kind_feature"
-                    label={__('Request a feature')}
-                    checked={kind === ISSUE.KIND_FEATURE}
-                    onChange={() => setKind(ISSUE.KIND_FEATURE)}
-                  />
-                  <FormField
-                    type="radio"
-                    name="report_kind_email"
-                    label={__('Change my email address')}
-                    checked={isEmailChange}
-                    onChange={() => setKind(ISSUE.KIND_EMAIL_CHANGE)}
-                  />
-                </div>
+                <fieldset className="report-issue__group" aria-label={__('Get help or send feedback')}>
+                  <div className="report-issue__options report-issue__options--inline">
+                    <FormField
+                      type="radio"
+                      name="report_kind_problem"
+                      groupName="report_kind"
+                      label={__('Report a problem')}
+                      checked={isProblem}
+                      onChange={() => setKind(ISSUE.KIND_PROBLEM)}
+                    />
+                    <FormField
+                      type="radio"
+                      name="report_kind_feature"
+                      groupName="report_kind"
+                      label={__('Request a feature')}
+                      checked={kind === ISSUE.KIND_FEATURE}
+                      onChange={() => setKind(ISSUE.KIND_FEATURE)}
+                    />
+                    <FormField
+                      type="radio"
+                      name="report_kind_email"
+                      groupName="report_kind"
+                      label={__('Change my email address')}
+                      checked={isEmailChange}
+                      onChange={() => setKind(ISSUE.KIND_EMAIL_CHANGE)}
+                    />
+                  </div>
+                </fieldset>
               </div>
 
               {/* ---------- Email change ---------- */}
@@ -434,42 +439,50 @@ export default function ReportPage() {
               {/* ---------- Symptoms ---------- */}
               {isProblem && area && area.symptoms.length > 0 && (
                 <div className="report-issue__section">
-                  <label className="report-issue__legend">{__('What is happening?')}</label>
-                  <span className="report-issue__hint">{__('Check all that apply.')}</span>
-                  <CheckboxGrid name="symptom" options={area.symptoms} selected={symptoms} onToggle={toggleSymptom} />
+                  <fieldset className="report-issue__group">
+                    <legend className="report-issue__legend">{__('What is happening?')}</legend>
+                    <span className="report-issue__hint">{__('Check all that apply.')}</span>
+                    <CheckboxGrid name="symptom" options={area.symptoms} selected={symptoms} onToggle={toggleSymptom} />
+                  </fieldset>
                 </div>
               )}
 
               {/* ---------- Reproducibility ---------- */}
               {isProblem && (
                 <div className="report-issue__section">
-                  <label className="report-issue__legend">{__('How often does it happen?')}</label>
-                  <div className="report-issue__options report-issue__options--inline">
-                    {ISSUE.FREQUENCIES.map((option) => (
-                      <FormField
-                        key={option}
-                        type="radio"
-                        name={`report_frequency--${option.replace(/\s+/g, '-').toLowerCase()}`}
-                        label={__(option)}
-                        checked={frequency === option}
-                        onChange={() => setFrequency(option)}
-                      />
-                    ))}
-                  </div>
+                  <fieldset className="report-issue__group">
+                    <legend className="report-issue__legend">{__('How often does it happen?')}</legend>
+                    <div className="report-issue__options report-issue__options--inline">
+                      {ISSUE.FREQUENCIES.map((option) => (
+                        <FormField
+                          key={option}
+                          type="radio"
+                          name={`report_frequency--${option.replace(/\s+/g, '-').toLowerCase()}`}
+                          groupName="report_frequency"
+                          label={__(option)}
+                          checked={frequency === option}
+                          onChange={() => setFrequency(option)}
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
 
-                  <label className="report-issue__legend">{__('Where does it happen?')}</label>
-                  <div className="report-issue__options report-issue__options--inline">
-                    {ISSUE.SCOPES.map((option) => (
-                      <FormField
-                        key={option}
-                        type="radio"
-                        name={`report_scope--${option.replace(/\s+/g, '-').toLowerCase()}`}
-                        label={__(option)}
-                        checked={scope === option}
-                        onChange={() => setScope(option)}
-                      />
-                    ))}
-                  </div>
+                  <fieldset className="report-issue__group">
+                    <legend className="report-issue__legend">{__('Where does it happen?')}</legend>
+                    <div className="report-issue__options report-issue__options--inline">
+                      {ISSUE.SCOPES.map((option) => (
+                        <FormField
+                          key={option}
+                          type="radio"
+                          name={`report_scope--${option.replace(/\s+/g, '-').toLowerCase()}`}
+                          groupName="report_scope"
+                          label={__(option)}
+                          checked={scope === option}
+                          onChange={() => setScope(option)}
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
 
                   <FormField
                     type="select"
@@ -487,16 +500,18 @@ export default function ReportPage() {
                   </FormField>
 
                   {/* ---------- Already tried ---------- */}
-                  <label className="report-issue__legend">{__('Have you already tried any of these?')}</label>
-                  <span className="report-issue__hint">
-                    {__('Telling us saves a round-trip email asking you to try them.')}
-                  </span>
-                  <CheckboxGrid
-                    name="tried"
-                    options={ISSUE.ALREADY_TRIED_OPTIONS}
-                    selected={alreadyTried}
-                    onToggle={toggleAlreadyTried}
-                  />
+                  <fieldset className="report-issue__group">
+                    <legend className="report-issue__legend">{__('Have you already tried any of these?')}</legend>
+                    <span className="report-issue__hint">
+                      {__('Telling us saves a round-trip email asking you to try them.')}
+                    </span>
+                    <CheckboxGrid
+                      name="tried"
+                      options={ISSUE.ALREADY_TRIED_OPTIONS}
+                      selected={alreadyTried}
+                      onToggle={toggleAlreadyTried}
+                    />
+                  </fieldset>
                 </div>
               )}
 
@@ -533,49 +548,51 @@ export default function ReportPage() {
 
               {/* ---------- Attachments ---------- */}
               <div className="report-issue__section">
-                <label className="report-issue__legend">{__('Screenshot or recording')}</label>
-                <span className="report-issue__hint">
-                  {__('Optional, but it often replaces a whole email thread.')}
-                </span>
+                <fieldset className="report-issue__group">
+                  <legend className="report-issue__legend">{__('Screenshot or recording')}</legend>
+                  <span className="report-issue__hint">
+                    {__('Optional, but it often replaces a whole email thread.')}
+                  </span>
 
-                {screenshotUrl ? (
-                  <div className="report-issue__attachment">
-                    <img src={screenshotUrl} alt={screenshotName} className="report-issue__attachment-preview" />
-                    <div className="report-issue__attachment-meta">
-                      <span>{screenshotName}</span>
-                      <Button button="link" label={__('Remove')} onClick={removeScreenshot} />
+                  {screenshotUrl ? (
+                    <div className="report-issue__attachment">
+                      <img src={screenshotUrl} alt={screenshotName} className="report-issue__attachment-preview" />
+                      <div className="report-issue__attachment-meta">
+                        <span>{screenshotName}</span>
+                        <Button button="link" label={__('Remove')} onClick={removeScreenshot} />
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="report-issue__upload">
-                    <Button
-                      button="secondary"
-                      icon={ICONS.IMAGE}
-                      disabled={isUploading}
-                      label={isUploading ? __('Uploading...') : __('Choose an image')}
-                      onClick={() => fileInput.current?.click()}
-                    />
-                    {isUploading && <Spinner type="small" />}
-                    <input
-                      type="file"
-                      ref={fileInput}
-                      style={{ display: 'none' }}
-                      accept={ISSUE.SCREENSHOT_ACCEPT}
-                      onChange={handleFileChosen}
-                    />
-                  </div>
-                )}
-                {uploadError && <ErrorText>{uploadError}</ErrorText>}
+                  ) : (
+                    <div className="report-issue__upload">
+                      <Button
+                        button="secondary"
+                        icon={ICONS.IMAGE}
+                        disabled={isUploading}
+                        label={isUploading ? __('Uploading...') : __('Choose an image')}
+                        onClick={() => fileInput.current?.click()}
+                      />
+                      {isUploading && <Spinner type="small" />}
+                      <input
+                        type="file"
+                        ref={fileInput}
+                        style={{ display: 'none' }}
+                        accept={ISSUE.SCREENSHOT_ACCEPT}
+                        onChange={handleFileChosen}
+                      />
+                    </div>
+                  )}
+                  {uploadError && <ErrorText>{uploadError}</ErrorText>}
 
-                <FormField
-                  type="text"
-                  name="report_media_link"
-                  label={__('Or paste a link to a recording (optional)')}
-                  placeholder={'odysee.com/@channel/video'}
-                  value={mediaLink}
-                  error={mediaLinkError ? __('That does not look like a valid link') : ''}
-                  onChange={(e: any) => setMediaLink(capped(e.target.value, ISSUE.MAX_LINK_LENGTH))}
-                />
+                  <FormField
+                    type="text"
+                    name="report_media_link"
+                    label={__('Or paste a link to a recording (optional)')}
+                    placeholder={'odysee.com/@channel/video'}
+                    value={mediaLink}
+                    error={mediaLinkError ? __('That does not look like a valid link') : ''}
+                    onChange={(e: any) => setMediaLink(capped(e.target.value, ISSUE.MAX_LINK_LENGTH))}
+                  />
+                </fieldset>
               </div>
 
               {/* ---------- Contact + diagnostics ---------- */}
@@ -640,7 +657,7 @@ export default function ReportPage() {
               {descriptionTooShort && description.length > 0 && (
                 <p className="help">{__('Please add a little more detail so we can act on it.')}</p>
               )}
-              {linkIsRequired && !link && (
+              {linkIsRequired && !link.trim() && (
                 <p className="help">{__('A link is required so we can look at the exact video.')}</p>
               )}
               {isEmailChange && !newEmail && (

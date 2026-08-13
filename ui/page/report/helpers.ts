@@ -1,6 +1,7 @@
 import { IMG_CDN_PUBLISH_URL, JSON_RESPONSE_KEYS, UPLOAD_CONFIG } from 'constants/cdn_urls';
 import { platform } from 'util/platform';
 import { URL as SITE_URL } from 'config';
+import { KIND_EMAIL_CHANGE, KIND_FEATURE, KIND_PROBLEM } from 'constants/report_issue';
 
 export type Diagnostic = {
   label: string;
@@ -20,6 +21,7 @@ export type ReportPayload = {
   timestamp: string;
   description: string;
   screenshotUrl: string;
+  recordingUrl: string;
   email: string;
   currentEmail: string;
   newEmail: string;
@@ -86,23 +88,31 @@ export async function uploadScreenshot(file: File): Promise<string> {
   data.append(UPLOAD_CONFIG.BLOB_KEY, file);
   data.append(UPLOAD_CONFIG.ACTION_KEY, UPLOAD_CONFIG.ACTION_VAL);
 
-  const response = await fetch(IMG_CDN_PUBLISH_URL, { method: 'POST', body: data });
-  const text = await response.text();
+  const errorMessage = __('The image could not be uploaded. Try a different file.');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
-  let json;
   try {
-    json = text.length ? JSON.parse(text) : {};
+    const response = await fetch(IMG_CDN_PUBLISH_URL, {
+      method: 'POST',
+      body: data,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(errorMessage);
+
+    const text = await response.text();
+    const json = text.length ? JSON.parse(text) : {};
+    const url = json[JSON_RESPONSE_KEYS.UPLOADED_URL];
+
+    if (json[JSON_RESPONSE_KEYS.STATUS] !== 'success' || !url) throw new Error(errorMessage);
+
+    return url;
   } catch {
-    throw new Error(__('The image could not be uploaded. Try a different file.'));
+    throw new Error(errorMessage);
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const url = json[JSON_RESPONSE_KEYS.UPLOADED_URL];
-
-  if (json[JSON_RESPONSE_KEYS.STATUS] !== 'success' || !url) {
-    throw new Error(url || __('The image could not be uploaded. Try a different file.'));
-  }
-
-  return url;
 }
 
 // ****************************************************************************
@@ -178,18 +188,18 @@ export function formatPlayerTimestamp(seconds: number): string {
 export const USER_FEEDBACK_PREFIX = 'UserFeedback';
 
 const KIND_LABELS: { [key: string]: string } = {
-  feature: 'Feature request',
-  email_change: 'Email change',
-  problem: 'Problem',
+  [KIND_FEATURE]: 'Feature request',
+  [KIND_EMAIL_CHANGE]: 'Email change',
+  [KIND_PROBLEM]: 'Problem',
 };
 
-/** One-line gist used for both the API marker line and the Sentry title. */
+/** One-line gist used for the support API marker line. */
 function buildReportSummary(payload: ReportPayload): string {
-  if (payload.kind === 'email_change') {
+  if (payload.kind === KIND_EMAIL_CHANGE) {
     return `[Email change] ${payload.currentEmail} -> ${payload.newEmail}`;
   }
 
-  const area = payload.kind === 'feature' ? 'Feature request' : payload.areaLabel;
+  const area = payload.kind === KIND_FEATURE ? 'Feature request' : payload.areaLabel;
   const detail = payload.symptoms[0] || payload.description;
   const trimmed = detail.length > 80 ? `${detail.slice(0, 80)}…` : detail;
   return `[${area}] ${trimmed}`;
@@ -223,6 +233,7 @@ export function buildReportMessage(payload: ReportPayload): string {
   field('Started', payload.started);
   field('Already tried', payload.alreadyTried.join(', '));
   field('Screenshot', payload.screenshotUrl);
+  field('Recording', payload.recordingUrl);
   field('Reply to', payload.email);
 
   section('Description');
@@ -241,10 +252,16 @@ export function buildReportMessage(payload: ReportPayload): string {
  * creating one issue per free-text description.
  */
 export function buildReportTitle(payload: ReportPayload): string {
-  return `${USER_FEEDBACK_PREFIX}: ${buildReportSummary(payload)}`;
+  const area =
+    payload.kind === KIND_EMAIL_CHANGE
+      ? 'Email change'
+      : payload.kind === KIND_FEATURE
+        ? 'Feature request'
+        : payload.areaLabel || 'Problem';
+  return `${USER_FEEDBACK_PREFIX}: [${area}]`;
 }
 
-/** Sentry tags must be short scalars -- the full answers go in `extra`. */
+/** Sentry receives only non-identifying, short scalar metadata. */
 export function buildReportTags(payload: ReportPayload): { [key: string]: string } {
   return {
     origin: '/$/report',
@@ -255,6 +272,7 @@ export function buildReportTags(payload: ReportPayload): { [key: string]: string
     report_started: payload.started || 'unspecified',
     report_has_link: String(Boolean(payload.link)),
     report_has_screenshot: String(Boolean(payload.screenshotUrl)),
+    report_has_recording: String(Boolean(payload.recordingUrl)),
     report_has_email: String(Boolean(payload.email)),
     report_symptom_count: String(payload.symptoms.length),
   };

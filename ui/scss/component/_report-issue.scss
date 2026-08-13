@@ -19,10 +19,26 @@
   }
 }
 
+.report-issue__group {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.report-issue__section {
+  > .report-issue__group + .report-issue__group,
+  > .report-issue__group + fieldset-section,
+  > fieldset-section + .report-issue__group {
+    margin-top: var(--spacing-m);
+  }
+}
+
 .report-issue__legend {
   display: block;
   font-weight: var(--font-weight-bold);
   margin-top: var(--spacing-m);
+  padding: 0;
 
   &:first-child {
     margin-top: 0;
