@@ -355,6 +355,22 @@ function FileListPublished() {
                 <p>{__('Larger upload list may take time to load with filters enabled')}</p>
               </div>
             )}
+            {isFilteringEnabled && !fetching && isFetchComplete === true && !isAllMyClaimsFetched && (
+              <div className="main--empty">
+                <Spinner type="small" />
+                <p>{__('Loading the rest of your uploads...')}</p>
+              </div>
+            )}
+            {isFilteringEnabled && !fetching && isFetchComplete === false && (
+              <div className="main--empty">
+                <p>{__('Failed to load your uploads.')}</p>
+                <Button
+                  button="primary"
+                  label={__('Retry')}
+                  onClick={() => dispatch(doFetchClaimListMine(1, FILE_LIST.PAGE_SIZE_ALL_ITEMS, true, [], true))}
+                />
+              </div>
+            )}
 
             {getFetchingPlaceholders()}
             <Paginate

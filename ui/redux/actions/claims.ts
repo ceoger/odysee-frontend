@@ -313,6 +313,7 @@ export function doResolveUri(
 ) {
   return doResolveUris([uri], returnCachedClaims, resolveReposts, additionalOptions);
 }
+let fetchAllMyClaimsInFlight = false;
 export function doFetchClaimListMine(
   page: number = 1,
   pageSize: number = 99999,
@@ -321,7 +322,16 @@ export function doFetchClaimListMine(
   fetchViewCount: boolean = false,
   channelIds: Array<string | null | undefined> = []
 ) {
-  return (dispatch: Dispatch, getState: GetState) => {
+  return async (dispatch: Dispatch, getState: GetState) => {
+    const isFetchingAllClaims = pageSize === FILE_LIST.PAGE_SIZE_ALL_ITEMS;
+
+    if (isFetchingAllClaims) {
+      if (fetchAllMyClaimsInFlight) {
+        return;
+      }
+      fetchAllMyClaimsInFlight = true;
+    }
+
     dispatch({
       type: ACTIONS.FETCH_CLAIM_LIST_MINE_STARTED,
     });
@@ -332,83 +342,101 @@ export function doFetchClaimListMine(
       claimTypes = claimTypes.filter((t) => filterBy.includes(t));
     }
 
-    Lbry.claim_list({
-      page: page,
-      page_size: pageSize,
-      claim_type: claimTypes,
-      channel_id: channelIds,
-      resolve,
-    })
-      .then(async (result: StreamListResponse) => {
-        // Log stuck claims
-        const claims = result.items;
-        const pendingClaimsById = selectPendingClaimsById(state);
+    const handleResult = async (result: StreamListResponse, isLastChunk: boolean) => {
+      // Log stuck claims
+      const claims = result.items;
+      const pendingClaimsById = selectPendingClaimsById(state);
 
-        for (let i = 0; i < claims.length - 1; i++) {
-          if (Object.keys(pendingClaimsById).includes(claims[i].claim_id)) {
-            continue;
-          }
-
-          if (claims[i].confirmations > claims[i + 1].confirmations) {
-            Lbryio.call('event', 'desktop_error', {
-              error_message: `CLAIM STUCK IN UPLOADS: ${claims[i].claim_id}`,
-            });
-            break;
-          }
+      for (let i = 0; i < claims.length - 1; i++) {
+        if (Object.keys(pendingClaimsById).includes(claims[i].claim_id)) {
+          continue;
         }
 
-        dispatch({
-          type: ACTIONS.FETCH_CLAIM_LIST_MINE_COMPLETED,
-          data: {
-            result,
-            resolve,
-            setNewPageItems: pageSize !== FILE_LIST.PAGE_SIZE_ALL_ITEMS,
-            isAllMyClaimsFetched: pageSize === FILE_LIST.PAGE_SIZE_ALL_ITEMS,
-            isPublicationOnlyClaimList: true,
-          },
-        });
-        const claimIds: Array<ClaimId> = [];
-        const membersOnlyClaimIds = new Set([]);
-        const channelClaimIds = new Set([]);
-        const costInfos = new Set<Promise<CostInfo>>();
-        result.items.forEach((item) => {
-          claimIds.push(item.claim_id);
-
-          if (item.value_type !== 'channel' && item.value_type !== 'collection') {
-            const isProtected = isClaimProtected(item);
-            if (isProtected) membersOnlyClaimIds.add(item.claim_id);
-          }
-
-          const channelId = getChannelIdFromClaim(item);
-          if (channelId) channelClaimIds.add(channelId);
-          costInfos.add(getCostInfoForFee(item.claim_id, item.value ? (item.value as StreamMetadata).fee : undefined));
-        });
-
-        if (costInfos.size > 0) {
-          const settledCostInfosById = await Promise.all(Array.from(costInfos));
-          dispatch({
-            type: ACTIONS.SET_COST_INFOS_BY_ID,
-            data: settledCostInfosById,
+        if (claims[i].confirmations > claims[i + 1].confirmations) {
+          Lbryio.call('event', 'desktop_error', {
+            error_message: `CLAIM STUCK IN UPLOADS: ${claims[i].claim_id}`,
           });
+          break;
         }
+      }
 
-        if (membersOnlyClaimIds.size > 0) {
-          dispatch(doMembershipContentForStreamClaimIds(Array.from(membersOnlyClaimIds)));
-        }
-
-        if (channelClaimIds.size > 0) {
-          dispatch(doFetchOdyseeMembershipForChannelIds(Array.from(channelClaimIds)));
-        }
-
-        if (fetchViewCount && claimIds.length > 0) {
-          dispatch(doFetchViewCount(claimIds.join(',')));
-        }
-      })
-      .catch(() => {
-        dispatch({
-          type: ACTIONS.FETCH_CLAIM_LIST_MINE_FAILED,
-        });
+      dispatch({
+        type: ACTIONS.FETCH_CLAIM_LIST_MINE_COMPLETED,
+        data: {
+          result,
+          resolve,
+          setNewPageItems: !isFetchingAllClaims,
+          isAllMyClaimsFetched: isFetchingAllClaims && isLastChunk,
+          isPublicationOnlyClaimList: true,
+        },
       });
+      const claimIds: Array<ClaimId> = [];
+      const membersOnlyClaimIds = new Set([]);
+      const channelClaimIds = new Set([]);
+      const costInfos = new Set<Promise<CostInfo>>();
+      result.items.forEach((item) => {
+        claimIds.push(item.claim_id);
+
+        if (item.value_type !== 'channel' && item.value_type !== 'collection') {
+          const isProtected = isClaimProtected(item);
+          if (isProtected) membersOnlyClaimIds.add(item.claim_id);
+        }
+
+        const channelId = getChannelIdFromClaim(item);
+        if (channelId) channelClaimIds.add(channelId);
+        costInfos.add(getCostInfoForFee(item.claim_id, item.value ? (item.value as StreamMetadata).fee : undefined));
+      });
+
+      if (costInfos.size > 0) {
+        const settledCostInfosById = await Promise.all(Array.from(costInfos));
+        dispatch({
+          type: ACTIONS.SET_COST_INFOS_BY_ID,
+          data: settledCostInfosById,
+        });
+      }
+
+      if (membersOnlyClaimIds.size > 0) {
+        dispatch(doMembershipContentForStreamClaimIds(Array.from(membersOnlyClaimIds)));
+      }
+
+      if (channelClaimIds.size > 0) {
+        dispatch(doFetchOdyseeMembershipForChannelIds(Array.from(channelClaimIds)));
+      }
+
+      if (fetchViewCount && claimIds.length > 0) {
+        dispatch(doFetchViewCount(claimIds.join(',')));
+      }
+    };
+
+    try {
+      let currentPage = isFetchingAllClaims ? 1 : page;
+      let lastPage = currentPage;
+
+      do {
+        const result: StreamListResponse = await Lbry.claim_list({
+          page: currentPage,
+          page_size: isFetchingAllClaims ? FILE_LIST.ALL_ITEMS_CHUNK_SIZE : pageSize,
+          claim_type: claimTypes,
+          channel_id: channelIds,
+          resolve,
+        });
+
+        if (isFetchingAllClaims) {
+          lastPage = result.total_pages || 1;
+        }
+
+        await handleResult(result, currentPage >= lastPage);
+        currentPage++;
+      } while (currentPage <= lastPage);
+    } catch {
+      dispatch({
+        type: ACTIONS.FETCH_CLAIM_LIST_MINE_FAILED,
+      });
+    } finally {
+      if (isFetchingAllClaims) {
+        fetchAllMyClaimsInFlight = false;
+      }
+    }
   };
 }
 export type DoFetchClaimListMine = typeof doFetchClaimListMine;

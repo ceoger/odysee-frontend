@@ -2950,6 +2950,8 @@
   "You will not see content under 1min long. Also hides non-video/audio content.": "You will not see content under 1min long. Also hides non-video/audio content.",
   "Hide short content": "Hide short content",
   "Larger upload list may take time to load with filters enabled": "Larger upload list may take time to load with filters enabled",
+  "Loading the rest of your uploads...": "Loading the rest of your uploads...",
+  "Failed to load your uploads.": "Failed to load your uploads.",
   "Enable filters": "Enable filters",
   "Search & Sort": "Search & Sort",
   "Past Due": "Past Due",
