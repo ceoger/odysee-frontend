@@ -207,6 +207,19 @@ const StreamClaimPage = (props: Props) => {
   const collectionSidebarId = urlParams.get(COLLECTIONS_CONSTS.COLLECTION_ID);
   const disableShortsView = !!collectionSidebarId || disableShortsViewSetting;
   const shortsView = urlParams.get('view') === 'shorts';
+  const uriAccessKey = React.useMemo<UriAccessKey | undefined>(() => {
+    const signature = urlParams.get('signature');
+    const signatureTs = urlParams.get('signature_ts');
+
+    if (!signature || !signatureTs) return undefined;
+
+    return {
+      key: 'signature',
+      value: signature,
+      signature,
+      signature_ts: signatureTs,
+    };
+  }, [search]);
   const claimVideo = claim?.value?.video;
   const shouldProbeShortVideo =
     !isClaimShortValue &&
@@ -233,7 +246,7 @@ const StreamClaimPage = (props: Props) => {
 
     const streamingUrl = fileInfo?.streaming_url;
     if (!streamingUrl) {
-      dispatch(doFileGetForUriAction(uri));
+      dispatch(doFileGetForUriAction(uri, uriAccessKey ? { uriAccessKey } : undefined));
       return;
     }
 
@@ -277,7 +290,7 @@ const StreamClaimPage = (props: Props) => {
       video.removeEventListener('error', onError);
       cleanup();
     };
-  }, [dispatch, fileInfo, shouldProbeShortVideo, uri]);
+  }, [dispatch, fileInfo, shouldProbeShortVideo, uri, uriAccessKey]);
 
   React.useEffect(() => {
     if ((linkedCommentId || threadCommentId) && isMobile) {

@@ -152,6 +152,7 @@ type FileGetOptions = {
   uri?: string;
   outpoint?: string;
   claim_id?: string;
+  uriAccessKey?: UriAccessKey;
 };
 
 type LbryTypes = {

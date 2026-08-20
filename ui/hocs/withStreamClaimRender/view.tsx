@@ -180,7 +180,7 @@ const withStreamClaimRender = (StreamClaimComponent: FunctionalComponentParam) =
         signature: urlParams.get('signature') || '',
         signature_ts: urlParams.get('signature_ts') || '',
       };
-      (fileGetOptions as any).uriAccessKey = uriAccessKey;
+      fileGetOptions.uriAccessKey = uriAccessKey;
     }
 
     // check if there is a time or autoplay parameter, if so force autoplay
