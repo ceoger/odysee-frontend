@@ -262,15 +262,16 @@ export const selectRepliesForParentId = (createCachedSelector as any)(
   selectCommentsById,
   ...filterCommentsDepValues,
   (id: string, repliesByParentId: any, commentsById: any, ...filterInputs: any[]) => {
-    // const claimId = byUri[uri]; // just parentId (id)
     const replyIdsForParent = repliesByParentId[id] || EMPTY_ARRAY;
     if (!replyIdsForParent.length) return EMPTY_ARRAY;
     const comments = [];
     replyIdsForParent.forEach((cid) => {
       comments.push(commentsById[cid]);
     });
-    // const comments = byParentId && byParentId[id];
-    return filterComments(comments, undefined, filterInputs);
+    // Replies are keyed by parent id rather than claim, but the comments carry
+    // the claim they belong to. Pass it along so `filterComments` can tell
+    // whether the content is mine.
+    return filterComments(comments, comments.find((c) => c && c.claim_id)?.claim_id, filterInputs);
   }
 )((state, id: string) => String(id));
 
@@ -354,13 +355,14 @@ const filterComments = (comments: Array<CommentData>, claimId: string | undefine
           }
         }
 
-        if (claimId) {
-          const claimIdIsMine = myClaimIds && myClaimIds.size > 0 && myClaimIds.includes(claimId);
+        // An unknown claim is not a claim of mine, so it must not skip the block
+        // check -- gating the whole branch on `claimId` let blocked channels
+        // through wherever the caller had no claim to hand, replies included.
+        const claimIdIsMine = Boolean(claimId) && myClaimIds && myClaimIds.size > 0 && myClaimIds.includes(claimId);
 
-          if (!claimIdIsMine && !amDelegatedMod) {
-            if (personalBlockList.includes(comment.channel_url)) {
-              return false;
-            }
+        if (!claimIdIsMine && !amDelegatedMod) {
+          if (personalBlockList.includes(comment.channel_url)) {
+            return false;
           }
         }
 
