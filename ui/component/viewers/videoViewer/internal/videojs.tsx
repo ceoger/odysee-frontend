@@ -589,18 +589,21 @@ function VideoJsInner(props: Props) {
     if (!media || readyCalledRef.current) return;
     readyCalledRef.current = true;
 
-    // Set initial state
-    const state = store.state;
+    // Set initial state. `toggleMuted()` flips whatever the current value is, so
+    // it cannot express "start muted" — assign the element instead. The store
+    // picks this up through its own 'volumechange' listener.
     if (startMuted) {
-      try {
-        state.toggleMuted();
-      } catch {
-        // Store target not yet attached — fall back to muting the element directly
-        media.muted = true;
-      }
+      media.muted = true;
     }
 
-    // Call onPlayerReady with a compatible API object
+    // Call onPlayerReady with a compatible API object.
+    //
+    // Every accessor below reads the media element rather than a captured
+    // `store.state`. The store hands out a new frozen object on each update, so
+    // a reference captured here (this effect runs once per media element) is
+    // stale from the next state change onwards — which silently turned the
+    // muted() setter into a no-op, since its guard compared against a value
+    // that never changed.
     const playerApi = {
       currentTime: (val) => {
         if (val !== undefined) {
@@ -611,24 +614,24 @@ function VideoJsInner(props: Props) {
       },
       muted: (val) => {
         if (val !== undefined) {
-          if (val !== state.muted) state.toggleMuted();
+          if (val !== media.muted) store.state.toggleMuted();
           return val;
         }
-        return state.muted;
+        return media.muted;
       },
       volume: (val) => {
         if (val !== undefined) {
-          state.setVolume(val);
+          store.state.setVolume(val);
           return val;
         }
-        return state.volume;
+        return media.volume;
       },
       playbackRate: (val) => {
         if (val !== undefined) {
-          state.setPlaybackRate(val);
+          store.state.setPlaybackRate(val);
           return val;
         }
-        return state.playbackRate;
+        return media.playbackRate;
       },
       on: (event, fn) => media.addEventListener(event, fn),
       off: (event, fn) => media.removeEventListener(event, fn),
@@ -1155,15 +1158,11 @@ function VideoJsInner(props: Props) {
 
   const unmuteAndHideHint = useCallback(() => {
     if (media) {
-      if (window.player?.muted) {
-        try {
-          window.player.muted(false);
-        } catch {
-          media.muted = false;
-        }
-      } else {
-        media.muted = false;
-      }
+      // Unmute the element directly. Routing this through `window.player` added
+      // nothing (the old `window.player?.muted` test read a method reference, so
+      // it was always truthy regardless of mute state) and the store stays in
+      // sync either way through its 'volumechange' listener.
+      media.muted = false;
 
       if (media.volume === 0) media.volume = 1.0;
 
