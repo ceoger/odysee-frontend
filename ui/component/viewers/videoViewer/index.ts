@@ -123,7 +123,11 @@ function VideoViewerWithRedux(props: any) {
     collectionId,
     nextPlaylistUri,
     isMarkdownOrComment,
-    autoplayIfEmbedded: Boolean(autoplay),
+    // Only embeds have to start muted -- browsers require it to autoplay there.
+    // The shorts feed puts `autoplay=1` on every in-feed url too (to force
+    // playback in withStreamClaimRender), and treating that as "start muted"
+    // re-muted every short after the first, discarding the viewer's unmute.
+    autoplayIfEmbedded: Boolean(autoplay) && isEmbeddedPlayback,
     autoplayNext,
     volume: volume ?? 1,
     muted: muted ?? false,
