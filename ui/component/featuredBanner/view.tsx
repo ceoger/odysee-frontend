@@ -6,6 +6,7 @@ import { NavLink } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from 'redux/hooks';
 import { selectClaimForUri, selectClaimSearchByQuery } from 'redux/selectors/claims';
+import { selectBanStateForUri } from 'lbryinc';
 import { doClaimSearch, doResolveUri } from 'redux/actions/claims';
 import { createNormalizedClaimSearchKey } from 'util/claim';
 import ClaimPreviewTile from 'component/claimPreviewTile';
@@ -39,6 +40,8 @@ function BannerLatestClaims({ channelUri, count }: { channelUri: string; count: 
   const dispatch = useAppDispatch();
   const channelClaim = useAppSelector((state) => selectClaimForUri(state, channelUri));
   const channelClaimId = channelClaim?.claim_id;
+  const banState = useAppSelector((state) => selectBanStateForUri(state, channelUri));
+  const channelIsHidden = Boolean(banState.muted || banState.blocked);
 
   const searchOptions = React.useMemo(() => {
     if (!channelClaimId) return null;
@@ -64,12 +67,20 @@ function BannerLatestClaims({ channelUri, count }: { channelUri: string; count: 
   }, [channelUri, dispatch]);
 
   React.useEffect(() => {
-    if (searchOptions && !searchResult) {
+    // No point fetching claims for a channel we are about to leave out. The
+    // channel itself still resolves above, since that is what tells us it is
+    // hidden in the first place.
+    if (searchOptions && !searchResult && !channelIsHidden) {
       dispatch(doClaimSearch(searchOptions));
     }
-  }, [searchOptions, searchResult, dispatch]);
+  }, [searchOptions, searchResult, dispatch, channelIsHidden]);
 
   const channelName = channelClaim?.value?.title || channelClaim?.name?.replace('@', '') || '';
+
+  // The tiles below hide themselves for a hidden channel, but the header does
+  // not, so hiding a featured channel used to leave its avatar, name and a
+  // subscribe button sitting above an empty strip.
+  if (channelIsHidden) return null;
 
   if (resultUris.length === 0) return null;
 
