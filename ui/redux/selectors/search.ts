@@ -20,7 +20,7 @@ import { objSelectorEqualityCheck } from 'util/redux-utils';
 import { createSelector } from 'reselect';
 import { createCachedSelector } from 're-reselect';
 import { createNormalizedSearchKey, getRecommendationSearchKey, getRecommendationSearchOptions } from 'util/search';
-import { selectMutedChannels } from 'redux/selectors/blocked';
+import { selectMutedAndBlockedChannelIds } from 'redux/selectors/blocked';
 import { selectHistory } from 'redux/selectors/content';
 import * as SETTINGS from 'constants/settings';
 
@@ -130,9 +130,9 @@ const selectRecommendedContentFilteredForUri = createCachedSelector(
   selectClaimForUri,
   selectRecommendedContentRawForUri,
   selectRecClaimsByIdForUri,
-  selectMutedChannels,
+  selectMutedAndBlockedChannelIds,
   selectHideYouTubeMirrors,
-  (claim, recommendationsRaw, recClaimsByUri, blockedChannels, hideYouTubeMirrors) => {
+  (claim, recommendationsRaw, recClaimsByUri, blockedChannelIds, hideYouTubeMirrors) => {
     if (!claim || !recommendationsRaw) {
       return;
     }
@@ -146,8 +146,12 @@ const selectRecommendedContentFilteredForUri = createCachedSelector(
           return true; // Don't filter out unresolved claims (let the placeholders show)
         }
 
-        const recChannelUri = recClaim?.signing_channel?.canonical_url;
-        const isRecChannelBlocked = blockedChannels.some((blockedUri) => blockedUri.includes(recChannelUri));
+        // Compare claim ids. This used to test whether the stored url contained
+        // the recommendation's channel url, but the stored one is a permanent_url
+        // (lbry://@Name#fullid) and this one was a canonical_url (lbry://@Name:1),
+        // so the two could never match and nothing was ever filtered out.
+        const recChannelId = recClaim?.signing_channel?.claim_id;
+        const isRecChannelBlocked = Boolean(recChannelId) && blockedChannelIds.includes(recChannelId);
         let isEqualUri;
 
         try {
