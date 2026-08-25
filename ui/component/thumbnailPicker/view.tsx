@@ -9,7 +9,7 @@ import * as ICONS from 'constants/icons';
 import * as MODALS from 'constants/modal_types';
 import * as THUMBNAIL_STATUSES from 'constants/thumbnail_upload_statuses';
 import { useAppSelector, useAppDispatch } from 'redux/hooks';
-import { doUploadThumbnail } from 'redux/actions/publish';
+import { doUploadThumbnail, doUpdatePublishForm } from 'redux/actions/publish';
 import { doOpenModal } from 'redux/actions/app';
 import { doToast } from 'redux/actions/notifications';
 import './style.lazy.scss';
@@ -48,6 +48,7 @@ function ThumbnailPicker(props: Props) {
   const currentThumbnail = useAppSelector((state) => state.publish.thumbnail);
   const uploadThumbnailStatus = useAppSelector((state) => state.publish.uploadThumbnailStatus);
   const editingURI = useAppSelector((state) => state.publish.editingURI);
+  const thumbnailIsUserChosen = useAppSelector((state) => state.publish.thumbnailIsUserChosen);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInputValue, setUrlInputValue] = useState('');
   const dispatch = useAppDispatch();
@@ -75,6 +76,14 @@ function ThumbnailPicker(props: Props) {
   const extractionIdRef = useRef(0);
   const manualFrameUrlRef = useRef<string | null>(null);
   const isUploadInProgress = uploading || uploadThumbnailStatus === THUMBNAIL_STATUSES.IN_PROGRESS;
+
+  // A deliberate pick outranks the frame we extract from the source. Held in a
+  // ref because the extract callbacks are memoised and would otherwise read a
+  // stale value -- and because this has to survive the remount that stepping
+  // back through the form causes, it lives in the publish form rather than here.
+  const hasChosenThumbnail = Boolean(thumbnailIsUserChosen && currentThumbnail);
+  const hasChosenThumbnailRef = useRef(hasChosenThumbnail);
+  hasChosenThumbnailRef.current = hasChosenThumbnail;
 
   const cleanupFrameUrls = useCallback((urls?: string[]) => {
     const urlsToRevoke = urls || frameUrlsRef.current;
@@ -120,6 +129,10 @@ function ThumbnailPicker(props: Props) {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    // Both manual slots describe the source we are leaving. Keeping them would
+    // leave a tile pointing at an object url we just revoked.
+    setUploadedThumbUrl(null);
+    setUrlThumbUrl(null);
   }, [cleanupFrameUrls, cleanupInput, cleanupManualFrame, cleanupUploadedPreview]);
 
   const extractFrames = useCallback(
@@ -196,8 +209,12 @@ function ThumbnailPicker(props: Props) {
         setFrames(newFrames);
 
         if (newFrames.length > 0) {
-          setSelectedIndex(0);
-          uploadFrame(newFrames[0]);
+          if (hasChosenThumbnailRef.current) {
+            setSelectedIndex(-4);
+          } else {
+            setSelectedIndex(0);
+            uploadFrame(newFrames[0], false);
+          }
         } else {
           setError(__('Could not extract any frames from the video.'));
         }
@@ -241,8 +258,12 @@ function ThumbnailPicker(props: Props) {
               frameUrlsRef.current = fallbackUrls;
               setFrames(fallbackFrames);
               if (fallbackFrames.length > 0) {
-                setSelectedIndex(0);
-                uploadFrame(fallbackFrames[0]);
+                if (hasChosenThumbnailRef.current) {
+                  setSelectedIndex(-4);
+                } else {
+                  setSelectedIndex(0);
+                  uploadFrame(fallbackFrames[0], false);
+                }
               }
             } else {
               fallbackUrls.forEach((u) => URL.revokeObjectURL(u));
@@ -318,8 +339,12 @@ function ThumbnailPicker(props: Props) {
           frameUrlsRef.current = newUrls;
           setFrames(newFrames);
           if (newFrames.length > 0) {
-            setSelectedIndex(0);
-            uploadFrame(newFrames[0]);
+            if (hasChosenThumbnailRef.current) {
+              setSelectedIndex(-4);
+            } else {
+              setSelectedIndex(0);
+              uploadFrame(newFrames[0], false);
+            }
           }
         }
       } catch {
@@ -347,9 +372,13 @@ function ThumbnailPicker(props: Props) {
     } else if (imageFile) {
       const url = URL.createObjectURL(imageFile);
       setImagePreviewUrl(url);
-      setSelectedIndex(-5);
       setLoading(false);
-      uploadFrame({ blobUrl: url, blob: imageFile, timestamp: 0, label: __('Source image') });
+      if (hasChosenThumbnailRef.current) {
+        setSelectedIndex(-4);
+      } else {
+        setSelectedIndex(-5);
+        uploadFrame({ blobUrl: url, blob: imageFile, timestamp: 0, label: __('Source image') }, false);
+      }
     } else {
       setLoading(false);
     }
@@ -446,9 +475,10 @@ function ThumbnailPicker(props: Props) {
     }
   }
 
-  async function uploadFrame(frame: FrameData) {
+  async function uploadFrame(frame: FrameData, isUserChoice: boolean = true) {
     if (uploading) return;
     setUploading(true);
+    dispatch(doUpdatePublishForm({ thumbnailIsUserChosen: isUserChoice }));
     try {
       let file = new File([frame.blob], 'thumbnail.jpeg', { type: 'image/jpeg' });
       if (file.size > THUMBNAIL_CDN_SIZE_LIMIT_BYTES) {
@@ -491,6 +521,7 @@ function ThumbnailPicker(props: Props) {
 
     if (!frame) return;
     setUploading(true);
+    dispatch(doUpdatePublishForm({ thumbnailIsUserChosen: true }));
 
     try {
       let file = new File([frame.blob], 'thumbnail.jpeg', {
@@ -559,25 +590,32 @@ function ThumbnailPicker(props: Props) {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      cleanupUploadedPreview();
+                      // This may be replacing an existing pick, so hold on to it
+                      // until the upload actually starts. Abandoning the
+                      // replacement has to leave the old one intact.
+                      const previousThumbUrl = uploadedThumbUrl;
+                      const previousPreviewUrl = uploadedPreviewUrlRef.current;
+                      const previousSelectedIndex = selectedIndex;
                       const previewUrl = URL.createObjectURL(file);
-                      uploadedPreviewUrlRef.current = previewUrl;
                       dispatch(
                         doOpenModal(MODALS.CONFIRM_THUMBNAIL_UPLOAD, {
                           file,
                           previewUrl,
                           onUploadStarted: () => {
+                            if (previousPreviewUrl) URL.revokeObjectURL(previousPreviewUrl);
+                            uploadedPreviewUrlRef.current = previewUrl;
                             setUploadedThumbUrl(previewUrl);
                             setSelectedIndex(-2);
                           },
                           onUploadCanceled: () => {
-                            cleanupUploadedPreview();
-                            setUploadedThumbUrl(null);
-                            if (selectedIndex === -2) setSelectedIndex(null);
+                            URL.revokeObjectURL(previewUrl);
+                            setUploadedThumbUrl(previousThumbUrl);
+                            setSelectedIndex(previousSelectedIndex);
                           },
                           cb: (url: string) => {
                             setUploadedThumbUrl((currentUrl) => currentUrl || url);
                             setSelectedIndex(-2);
+                            dispatch(doUpdatePublishForm({ thumbnailIsUserChosen: true }));
                             onThumbnailSelected?.(url);
                           },
                         })
@@ -593,13 +631,15 @@ function ThumbnailPicker(props: Props) {
                     (selectedIndex === -2 ? ' thumbnail-picker__item--selected' : '')
                   }
                   onClick={() => {
-                    if (uploadedThumbUrl) {
-                      setSelectedIndex(-2);
-                    } else if (!isUploadInProgress) {
-                      fileInputRef.current?.click();
-                    }
+                    // Always reopen the chooser: populated or not, mid-upload or
+                    // not. Selecting the tile is a side effect of picking a file,
+                    // so a filled slot stays replaceable. Never disabled either --
+                    // the frame that gets auto-uploaded on file selection put this
+                    // in the IN_PROGRESS state for the first few seconds, which is
+                    // exactly when someone reaches for it.
+                    fileInputRef.current?.click();
                   }}
-                  disabled={isUploadInProgress && !uploadedThumbUrl}
+                  title={uploadedThumbUrl ? __('Choose a different image') : undefined}
                   type="button"
                 >
                   {uploadedThumbUrl ? (
@@ -626,19 +666,18 @@ function ThumbnailPicker(props: Props) {
                     (selectedIndex === -3 ? ' thumbnail-picker__item--selected' : '')
                   }
                   onClick={() => {
-                    if (urlThumbUrl) {
-                      setSelectedIndex(-3);
-                    } else {
-                      dispatch(
-                        doOpenModal(MODALS.CONFIRM_THUMBNAIL_URL, {
-                          cb: (url: string) => {
-                            setUrlThumbUrl(url);
-                            setSelectedIndex(-3);
-                          },
-                        })
-                      );
-                    }
+                    dispatch(
+                      doOpenModal(MODALS.CONFIRM_THUMBNAIL_URL, {
+                        initialUrl: urlThumbUrl || undefined,
+                        cb: (url: string) => {
+                          setUrlThumbUrl(url);
+                          setSelectedIndex(-3);
+                          dispatch(doUpdatePublishForm({ thumbnailIsUserChosen: true }));
+                        },
+                      })
+                    );
                   }}
+                  title={urlThumbUrl ? __('Enter a different URL') : undefined}
                   type="button"
                 >
                   {urlThumbUrl ? (
@@ -650,13 +689,14 @@ function ThumbnailPicker(props: Props) {
                     </div>
                   )}
                 </button>
-                {editingURI && currentThumbnail && (
+                {currentThumbnail && (editingURI || hasChosenThumbnail) && (
                   <button
                     className={
                       'thumbnail-picker__item' + (selectedIndex === -4 ? ' thumbnail-picker__item--selected' : '')
                     }
                     onClick={() => {
                       setSelectedIndex(-4);
+                      dispatch(doUpdatePublishForm({ thumbnail: currentThumbnail, thumbnailIsUserChosen: true }));
                       onThumbnailSelected?.(currentThumbnail);
                     }}
                     type="button"
